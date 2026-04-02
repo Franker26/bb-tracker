@@ -123,13 +123,11 @@ fi
 # ── 6. Instalar dependencias Python del CLI (venv) ───────────────────────────
 info "Instalando dependencias Python del CLI..."
 VENV_DIR="$INSTALL_DIR/.venv"
-if ! command -v python3 -m venv --help >/dev/null 2>&1 || ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
-    # En algunos sistemas python3-venv viene separado
-    if command -v apt-get >/dev/null 2>&1; then
-        pkg_install python3-venv
-    fi
-    python3 -m venv "$VENV_DIR"
+# python3-venv viene separado en Debian/Ubuntu
+if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get install -y -q python3-venv 2>/dev/null || true
 fi
+python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install -q -r "$INSTALL_DIR/requirements-cli.txt"
 success "Dependencias del CLI instaladas"
 
