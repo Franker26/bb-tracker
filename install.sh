@@ -45,8 +45,9 @@ stop_spin() {
 # ── Limpieza en caso de error ─────────────────────────────────────────────────
 _installed=false
 on_error() {
-    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null && _spin_pid=""
-    printf "${CLR}  ${R}✘${RESET}  Instalación fallida\n\n"
+    local exit_code=$?
+    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""
+    printf "${CLR}  ${R}✘${RESET}  Instalación fallida (código: %s)\n\n" "$exit_code"
     if [ "$_installed" = false ]; then
         printf "  ${DIM}Limpiando archivos instalados...${RESET}\n"
         (cd "$INSTALL_DIR" 2>/dev/null && $COMPOSE down -v 2>/dev/null) || true
@@ -178,7 +179,14 @@ sudo docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null \
 
 (cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null) || true
 sleep 2
-(cd "$INSTALL_DIR" && $COMPOSE up -d 2>/dev/null)
+UP_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 ) || {
+    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""
+    printf "${CLR}  ${R}✘${RESET}  Error iniciando el contenedor\n\n"
+    printf "  ${DIM}Detalle:${RESET}\n"
+    echo "$UP_OUT" | sed 's/^/    /'
+    echo
+    exit 1
+}
 
 stop_spin "Contenedor en ejecución"
 
