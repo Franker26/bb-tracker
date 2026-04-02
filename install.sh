@@ -2,9 +2,19 @@
 # install.sh — Instala bb-tracker en Linux
 # curl -fsSL https://raw.githubusercontent.com/Franker26/bb-tracker/main/install.sh | bash
 
-# Cuando se ejecuta via curl|bash stdin es el pipe de curl.
-# Redirigir stdin al terminal para que los prompts funcionen.
-exec < /dev/tty 2>/dev/null || true
+# Cuando se ejecuta via "curl | bash", bash lee el script desde stdin (el pipe).
+# exec </dev/tty rompería esa lectura. Solución: el script se descarga a sí mismo
+# en un archivo temporal y se re-ejecuta, de modo que stdin queda libre para prompts.
+_SCRIPT_URL="https://raw.githubusercontent.com/Franker26/bb-tracker/main/install.sh"
+if [ -z "${BB_INSTALLER_RUNNING:-}" ]; then
+    _tmp=$(mktemp /tmp/bb-install-XXXXXX.sh)
+    curl -fsSL "$_SCRIPT_URL" -o "$_tmp" || { echo "Error descargando instalador"; exit 1; }
+    chmod +x "$_tmp"
+    BB_INSTALLER_RUNNING=1 bash "$_tmp"
+    _exit=$?
+    rm -f "$_tmp"
+    exit $_exit
+fi
 
 REPO_URL="https://github.com/Franker26/bb-tracker.git"
 INSTALL_DIR="$HOME/.local/share/bb-tracker"
