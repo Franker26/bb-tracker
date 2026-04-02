@@ -76,7 +76,7 @@ stop_spin "git"
 # ── 2. Python ─────────────────────────────────────────────────────────────────
 start_spin "Python..."
 command -v python3 >/dev/null 2>&1 || pkg python3
-pkg python3-full python3-venv
+pkg python3-venv
 command -v python3 >/dev/null 2>&1 || fail_step "python3 no encontrado y no se pudo instalar"
 stop_spin "Python"
 
