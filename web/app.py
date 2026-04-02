@@ -3,7 +3,11 @@ FastAPI app — dashboard web local.
 """
 
 import os
+import pathlib
 from collections import defaultdict
+
+_VERSION_FILE = pathlib.Path(__file__).parent.parent / "VERSION"
+VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "?"
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
@@ -70,6 +74,7 @@ async def dashboard(request: Request):
             "grouped": grouped,
             "last_updated": last_updated_fmt,
             "total": len(activities),
+            "version": VERSION,
         },
     )
 

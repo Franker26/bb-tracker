@@ -161,10 +161,17 @@ stop_spin "Comando bb-tracker"
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
 
-# Buscar un puerto libre desde 8000
+# Buscar un puerto libre desde 8000 (intenta bindear para verificar)
 PORT=8000
-while ss -tlnp 2>/dev/null | grep -q ":${PORT} " || \
-      lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do
+while ! python3 -c "
+import socket, sys
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s.bind(('0.0.0.0', $PORT))
+    s.close(); sys.exit(0)
+except: sys.exit(1)
+" 2>/dev/null; do
     PORT=$(( PORT + 1 ))
 done
 
