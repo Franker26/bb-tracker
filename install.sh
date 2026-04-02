@@ -4,7 +4,7 @@
 
 # Cuando se ejecuta via curl|bash stdin es el pipe de curl.
 # Redirigir stdin al terminal para que los prompts funcionen.
-exec < /dev/tty
+exec < /dev/tty 2>/dev/null || true
 
 REPO_URL="https://github.com/Franker26/bb-tracker.git"
 INSTALL_DIR="$HOME/.local/share/bb-tracker"
