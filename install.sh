@@ -51,7 +51,7 @@ elif command -v pacman >/dev/null 2>&1; then
 else
     PKG=""
 fi
-pkg() { [ -n "$PKG" ] && $PKG "$@" >/dev/null 2>&1; return 0; }
+pkg() { [ -n "$PKG" ] && timeout 120 $PKG "$@" >/dev/null 2>&1; return 0; }
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 clear
@@ -76,7 +76,8 @@ stop_spin "git"
 # ── 2. Python ─────────────────────────────────────────────────────────────────
 start_spin "Python..."
 command -v python3 >/dev/null 2>&1 || pkg python3
-pkg python3-venv
+# Solo instalar python3-venv si el módulo venv no está disponible
+python3 -c "import venv" >/dev/null 2>&1 || pkg python3-venv
 command -v python3 >/dev/null 2>&1 || fail_step "python3 no encontrado y no se pudo instalar"
 stop_spin "Python"
 
@@ -134,11 +135,22 @@ find "$VENV" -name "EXTERNALLY-MANAGED" -delete 2>/dev/null || true
 stop_spin "Dependencias del CLI"
 
 # ── 6. Imagen Docker ──────────────────────────────────────────────────────────
-start_spin "Imagen Docker..."
-BUILD_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE build) 2>&1 )
-BUILD_EXIT=$?
-[ "$BUILD_EXIT" -ne 0 ] && fail_step "Error construyendo la imagen Docker" "$BUILD_OUT"
-stop_spin "Imagen Docker"
+# Verificar si la imagen ya existe
+if docker image inspect bb-tracker_app >/dev/null 2>&1 || \
+   docker image inspect bb-tracker-app >/dev/null 2>&1; then
+    start_spin "Imagen Docker..."
+    stop_spin "Imagen Docker (existente)"
+else
+    stop_spin "Imagen Docker (descargando ~1GB, puede tardar varios minutos...)"
+    BUILD_LOG=$(mktemp)
+    (cd "$INSTALL_DIR" && $COMPOSE build) >"$BUILD_LOG" 2>&1
+    BUILD_EXIT=$?
+    if [ "$BUILD_EXIT" -ne 0 ]; then
+        fail_step "Error construyendo la imagen Docker" "$(tail -20 "$BUILD_LOG")"
+    fi
+    rm -f "$BUILD_LOG"
+    printf "  ${G}✔${RESET}  Imagen Docker\n"
+fi
 
 # ── 7. Comando bb-tracker ─────────────────────────────────────────────────────
 start_spin "Comando bb-tracker..."
