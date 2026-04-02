@@ -40,11 +40,14 @@ async def _main() -> None:
     )
     scheduler.start()
 
-    logger.info("Sync inicial...")
-    try:
-        await sync_all()
-    except Exception as e:
-        logger.error("Error en sync inicial: %s", e)
+    async def _initial_sync() -> None:
+        logger.info("Sync inicial...")
+        try:
+            await sync_all()
+        except Exception as e:
+            logger.error("Error en sync inicial: %s", e)
+
+    asyncio.ensure_future(_initial_sync())
 
     server = uvicorn.Server(
         uvicorn.Config(

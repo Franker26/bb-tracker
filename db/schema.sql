@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS activities (
     due_date     TEXT,
     status       TEXT NOT NULL DEFAULT 'pending',
     url          TEXT,
+    score        TEXT,
+    description  TEXT,
     last_updated TEXT NOT NULL,
     FOREIGN KEY (course_id) REFERENCES courses(id)
 );

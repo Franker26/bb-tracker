@@ -10,54 +10,43 @@ Scraper y dashboard local para hacer seguimiento de actividades y entregas en Bl
 - Se re-sincroniza automáticamente cada 30 minutos
 - Incluye un CLI interactivo para configurar credenciales y seleccionar qué cursos sincronizar
 
+## Instalación rápida (Linux)
+
+**Requisitos:** `git`, `docker`, `python3`, `pip3`
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Franker26/bb-tracker/main/install.sh | bash
+```
+
+Luego abrí el menú interactivo:
+
+```bash
+bb-tracker
+```
+
+> Si `bb-tracker` no se encuentra, agregá `~/.local/bin` al PATH:
+> ```bash
+> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+> ```
+
+## Instalación manual
+
+```bash
+git clone https://github.com/Franker26/bb-tracker.git
+cd bb-tracker
+cp .env.example .env
+docker compose up --build -d
+pip3 install --user -r requirements-cli.txt
+ln -s "$(pwd)/bb-tracker" ~/.local/bin/bb-tracker
+bb-tracker   # configurá credenciales y cursos
+```
+
 ## Stack
 
 - **Scraper**: Playwright (browser headless + fetch autenticado sobre la API de Blackboard)
 - **Backend**: FastAPI + APScheduler + SQLite
 - **Dashboard**: Jinja2 + HTML/CSS
 - **CLI**: Rich + Questionary + Pyfiglet
-
-## Instalación
-
-### Con Docker (recomendado)
-
-```bash
-git clone https://github.com/Franker26/bb-tracker.git
-cd bb-tracker
-cp .env.example .env
-# Editá .env con tus credenciales
-docker-compose up --build
-```
-
-El dashboard queda disponible en [http://localhost:8000](http://localhost:8000).
-
-### Sin Docker
-
-```bash
-pip install -r requirements.txt
-playwright install chromium
-cp .env.example .env
-# Editá .env con tus credenciales
-python main.py
-```
-
-## CLI de configuración
-
-```bash
-# Instalar dependencias del CLI (solo una vez)
-pip install -r requirements-cli.txt
-
-# Instalar el comando globalmente
-sudo ln -s "$(pwd)/bb-tracker" /usr/local/bin/bb-tracker
-
-# Abrir el menú
-bb-tracker
-```
-
-El CLI permite:
-- Configurar usuario y contraseña
-- Ver todos los cursos disponibles y seleccionar cuáles sincronizar
-- Disparar un sync manual
 
 ## Configuración (.env)
 
@@ -91,6 +80,7 @@ DB_PATH=/data/blackboard.db
 
 ```
 bb-tracker/
+├── install.sh            # Instalador automático
 ├── main.py               # Entrypoint (scheduler + uvicorn)
 ├── config.py             # Variables de entorno
 ├── cli.py                # CLI interactivo (bb-tracker)
