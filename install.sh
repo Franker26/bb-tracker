@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Instala bb-tracker en Linux
+# install.sh — Instala bb-tracker en Linux (Ubuntu/Debian)
 # Uso: bash install.sh
 #      o bien:  curl -fsSL https://raw.githubusercontent.com/Franker26/bb-tracker/main/install.sh | bash
 
@@ -21,36 +21,90 @@ error()   { echo -e "${RED}✗${RESET} $*"; exit 1; }
 
 echo -e "\n${BOLD}  bb-tracker — instalador${RESET}\n"
 
-# ── 1. Dependencias ──────────────────────────────────────────────────────────
-info "Verificando dependencias..."
-
-command -v git    >/dev/null 2>&1 || error "git no está instalado. Instalalo con: sudo apt install git"
-command -v docker >/dev/null 2>&1 || error "Docker no está instalado. Seguí: https://docs.docker.com/engine/install/"
-command -v python3 >/dev/null 2>&1 || error "python3 no está instalado. Instalalo con: sudo apt install python3"
-command -v pip3    >/dev/null 2>&1 || error "pip3 no está instalado. Instalalo con: sudo apt install python3-pip"
-
-# Verificar que docker funciona (sin sudo si el user está en el grupo)
-if ! docker info >/dev/null 2>&1; then
-    warn "Docker requiere permisos. Probando con sudo..."
-    if ! sudo docker info >/dev/null 2>&1; then
-        error "No se puede conectar a Docker. Asegurate de que el servicio esté corriendo."
-    fi
-    DOCKER_CMD="sudo docker"
-    COMPOSE_CMD="sudo docker compose"
+# ── Detectar gestor de paquetes ───────────────────────────────────────────────
+if command -v apt-get >/dev/null 2>&1; then
+    PKG_INSTALL="sudo apt-get install -y -q"
+    PKG_UPDATE="sudo apt-get update -q"
+elif command -v dnf >/dev/null 2>&1; then
+    PKG_INSTALL="sudo dnf install -y -q"
+    PKG_UPDATE=""
+elif command -v pacman >/dev/null 2>&1; then
+    PKG_INSTALL="sudo pacman -S --noconfirm --quiet"
+    PKG_UPDATE="sudo pacman -Sy --quiet"
 else
-    DOCKER_CMD="docker"
-    COMPOSE_CMD="docker compose"
+    warn "No se reconoció el gestor de paquetes. Instalá manualmente: git, docker, python3, pip3"
+    PKG_INSTALL=""
+    PKG_UPDATE=""
 fi
 
-# Compatibilidad docker compose vs docker-compose
-if ! $DOCKER_CMD compose version >/dev/null 2>&1; then
-    command -v docker-compose >/dev/null 2>&1 || error "docker compose no está disponible. Actualizá Docker o instalá docker-compose."
-    COMPOSE_CMD="${DOCKER_CMD/docker/docker-compose}"
+pkg_install() {
+    local pkg="$1"
+    if [ -n "$PKG_INSTALL" ]; then
+        info "Instalando $pkg..."
+        [ -n "$PKG_UPDATE" ] && $PKG_UPDATE 2>/dev/null || true
+        $PKG_INSTALL "$pkg"
+    else
+        error "$pkg no está instalado y no se puede instalar automáticamente."
+    fi
+}
+
+# ── 1. git ───────────────────────────────────────────────────────────────────
+if ! command -v git >/dev/null 2>&1; then
+    pkg_install git
+fi
+success "git OK"
+
+# ── 2. python3 + pip3 ────────────────────────────────────────────────────────
+if ! command -v python3 >/dev/null 2>&1; then
+    pkg_install python3
+fi
+if ! command -v pip3 >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+        pkg_install python3-pip
+    else
+        pkg_install python3-pip
+    fi
+fi
+success "python3 OK"
+
+# ── 3. Docker ────────────────────────────────────────────────────────────────
+if ! command -v docker >/dev/null 2>&1; then
+    info "Instalando Docker..."
+    curl -fsSL https://get.docker.com | sudo sh
+    sudo usermod -aG docker "$USER"
+    warn "Docker instalado. Para usarlo sin sudo, cerrá sesión y volvé a entrar (o ejecutá: newgrp docker)"
+fi
+success "docker OK"
+
+# Detectar si necesitamos sudo para docker
+if docker info >/dev/null 2>&1; then
+    DOCKER_PREFIX=""
+else
+    warn "Usando sudo para Docker (no estás en el grupo docker aún)."
+    DOCKER_PREFIX="sudo"
 fi
 
-success "Dependencias OK"
+# Detectar docker compose (plugin v2 o binario v1)
+if $DOCKER_PREFIX docker compose version >/dev/null 2>&1; then
+    COMPOSE="$DOCKER_PREFIX docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE="${DOCKER_PREFIX:+sudo }docker-compose"
+else
+    info "Instalando Docker Compose plugin..."
+    if command -v apt-get >/dev/null 2>&1; then
+        pkg_install docker-compose-plugin
+    else
+        # Instalar binario standalone
+        COMPOSE_VERSION=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+        sudo curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+             -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+    fi
+    COMPOSE="${DOCKER_PREFIX:+sudo }docker-compose"
+fi
+success "docker compose OK"
 
-# ── 2. Clonar o actualizar el repositorio ────────────────────────────────────
+# ── 4. Clonar o actualizar el repositorio ────────────────────────────────────
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "Actualizando instalación existente en $INSTALL_DIR..."
     git -C "$INSTALL_DIR" pull --ff-only
@@ -59,47 +113,46 @@ else
     mkdir -p "$(dirname "$INSTALL_DIR")"
     git clone "$REPO_URL" "$INSTALL_DIR"
 fi
-success "Código actualizado"
+success "Código listo"
 
-# ── 3. Crear .env si no existe ───────────────────────────────────────────────
+# ── 5. Crear .env si no existe ───────────────────────────────────────────────
 if [ ! -f "$INSTALL_DIR/.env" ]; then
     cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
-    info ".env creado desde el ejemplo — configuralo con: bb-tracker"
 fi
 
-# ── 4. Instalar dependencias del CLI ─────────────────────────────────────────
+# ── 6. Instalar dependencias Python del CLI ──────────────────────────────────
 info "Instalando dependencias Python del CLI..."
 pip3 install --user -q -r "$INSTALL_DIR/requirements-cli.txt"
 success "Dependencias del CLI instaladas"
 
-# ── 5. Construir imagen Docker ───────────────────────────────────────────────
+# ── 7. Construir imagen Docker ───────────────────────────────────────────────
 info "Construyendo imagen Docker (primera vez puede tardar ~2 min)..."
-(cd "$INSTALL_DIR" && $COMPOSE_CMD build --quiet)
+(cd "$INSTALL_DIR" && $COMPOSE build --quiet)
 success "Imagen Docker lista"
 
-# ── 6. Crear comando bb-tracker ──────────────────────────────────────────────
+# ── 8. Crear comando bb-tracker ──────────────────────────────────────────────
 mkdir -p "$BIN_DIR"
-cat > "$CMD" << 'EOF'
+cat > "$CMD" << 'WRAPPER'
 #!/usr/bin/env bash
 INSTALL_DIR="$HOME/.local/share/bb-tracker"
 cd "$INSTALL_DIR"
 exec python3 cli.py "$@"
-EOF
+WRAPPER
 chmod +x "$CMD"
-success "Comando bb-tracker creado en $CMD"
+success "Comando bb-tracker creado"
 
-# ── 7. Verificar PATH ────────────────────────────────────────────────────────
+# ── 9. Verificar PATH ────────────────────────────────────────────────────────
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-    warn "$BIN_DIR no está en tu PATH."
-    echo
-    echo "  Agregalo ejecutando:"
-    echo -e "  ${BOLD}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc${RESET}"
-    echo
+    SHELL_RC="$HOME/.bashrc"
+    [[ "$SHELL" == */zsh ]] && SHELL_RC="$HOME/.zshrc"
+    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_RC"
+    export PATH="$HOME/.local/bin:$PATH"
+    success "PATH actualizado en $SHELL_RC"
 fi
 
-# ── 8. Arrancar el contenedor ────────────────────────────────────────────────
+# ── 10. Arrancar el contenedor ───────────────────────────────────────────────
 info "Iniciando contenedor..."
-(cd "$INSTALL_DIR" && $COMPOSE_CMD up -d)
+(cd "$INSTALL_DIR" && $COMPOSE up -d)
 success "Contenedor en ejecución"
 
 # ── Listo ────────────────────────────────────────────────────────────────────
