@@ -162,10 +162,18 @@ stop_spin "Comando bb-tracker instalado"
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
 # Detener cualquier contenedor que ocupe el puerto 8000
-$DOCKER_PREFIX docker ps -q --filter "publish=8000" | xargs -r $DOCKER_PREFIX docker stop >/dev/null 2>&1 || true
+docker ps -q --filter "publish=8000" 2>/dev/null | xargs -r docker stop >/dev/null 2>&1 || \
+sudo docker ps -q --filter "publish=8000" 2>/dev/null | xargs -r sudo docker stop >/dev/null 2>&1 || true
 (cd "$INSTALL_DIR" && $COMPOSE down 2>/dev/null || true)
-(cd "$INSTALL_DIR" && $COMPOSE up -d 2>/dev/null) \
-    || fail_spin "Error iniciando el contenedor"
+COMPOSE_ERR=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 ) || {
+    kill "$_spin_pid" 2>/dev/null; _spin_pid=""
+    printf "\r  ${R}✘${RESET}  Error iniciando el contenedor\n"
+    echo
+    echo -e "  ${DIM}Detalle:${RESET}"
+    echo "$COMPOSE_ERR" | sed 's/^/    /'
+    echo
+    exit 1
+}
 stop_spin "Contenedor en ejecución"
 
 # ── Listo ─────────────────────────────────────────────────────────────────────
