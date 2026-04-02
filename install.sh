@@ -173,15 +173,14 @@ stop_spin "Comando bb-tracker"
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
 
-# Buscar puerto libre
-_pc=$(mktemp /tmp/bb_pc_XXXXXX.py)
-printf 'import socket,sys\ns=socket.socket()\ntry:\n    s.bind(("",int(sys.argv[1])))\n    s.close();sys.exit(0)\nexcept:sys.exit(1)\n' > "$_pc"
+# Buscar puerto libre — intenta conectar; si falla, el puerto está libre
 PORT=8000
-while ! python3 "$_pc" "$PORT" 2>/dev/null; do
+while (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do
+    exec 3>&- 2>/dev/null
     PORT=$(( PORT + 1 ))
-    [ "$PORT" -gt 8100 ] && { rm -f "$_pc"; fail_step "No se encontró un puerto libre entre 8000-8100"; }
+    [ "$PORT" -gt 8100 ] && fail_step "No se encontró un puerto libre entre 8000-8100"
 done
-rm -f "$_pc"
+exec 3>&- 2>/dev/null || true
 
 # Escribir BB_PORT en el .env
 if grep -q '^BB_PORT=' "$INSTALL_DIR/.env" 2>/dev/null; then
