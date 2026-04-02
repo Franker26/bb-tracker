@@ -20,11 +20,17 @@ def _connect(db_path: str) -> sqlite3.Connection:
 
 
 def init_db(db_path: str) -> None:
-    """Crea las tablas si no existen."""
+    """Crea las tablas si no existen y aplica migraciones."""
     with open(_SCHEMA_PATH) as f:
         schema = f.read()
     with _connect(db_path) as conn:
         conn.executescript(schema)
+        # Migraciones: agregar columnas nuevas si no existen
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(activities)").fetchall()}
+        if "score" not in existing:
+            conn.execute("ALTER TABLE activities ADD COLUMN score TEXT")
+        if "description" not in existing:
+            conn.execute("ALTER TABLE activities ADD COLUMN description TEXT")
 
 
 def upsert_course(db_path: str, course: Course) -> None:
@@ -42,16 +48,19 @@ def upsert_activity(db_path: str, activity: Activity) -> None:
     with _connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO activities (id, title, course_id, due_date, status, url, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO activities (id, title, course_id, due_date, status, url, score, description, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title        = excluded.title,
                 due_date     = excluded.due_date,
                 status       = excluded.status,
                 url          = excluded.url,
+                score        = excluded.score,
+                description  = excluded.description,
                 last_updated = excluded.last_updated
             """,
-            (activity.id, activity.title, activity.course_id, due_str, activity.status, activity.url, now),
+            (activity.id, activity.title, activity.course_id, due_str,
+             activity.status, activity.url, activity.score, activity.description, now),
         )
 
 

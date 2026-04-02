@@ -95,6 +95,20 @@ async def _parse_courses(data: dict) -> list[_Course]:
     return courses
 
 
+def _extract_description(item: dict) -> str | None:
+    """Extrae la descripción/instrucciones de un item de contenido."""
+    desc = item.get("description", "")
+    if desc and isinstance(desc, str):
+        return desc.strip() or None
+    # Fallback: body.rawText
+    body = item.get("body", {})
+    if isinstance(body, dict):
+        raw = body.get("rawText", "").strip()
+        if raw:
+            return raw
+    return None
+
+
 def _parse_activity_item(item: dict, course: "_Course") -> "_Activity | None":
     if not isinstance(item, dict):
         return None
@@ -122,8 +136,29 @@ def _parse_activity_item(item: dict, course: "_Course") -> "_Activity | None":
         logger.debug("Sin fecha — ignorando: %s", title)
         return None
 
-    submitted = bool(item.get("submitted") or item.get("score") is not None)
-    url = f"{BB}/ultra/courses/{course.id}/outline"
+    # Nota del alumno (adjuntada por el JS fetch como _grade)
+    grade_info = item.get("_grade") or {}
+    submitted = bool(
+        grade_info.get("submitted")
+        or item.get("submitted")
+        or item.get("state") in ("Started", "Completed")
+    )
+    score_str: str | None = None
+    if grade_info.get("text"):
+        # Buscar el total de puntos posibles para mostrar "X / Y"
+        possible = None
+        try:
+            detail = item.get("contentDetail", {})
+            possible = (
+                detail.get(handler, {}).get("test", {}).get("gradingColumn", {}).get("possible")
+                or detail.get(handler, {}).get("gradingColumn", {}).get("possible")
+            )
+        except Exception:
+            pass
+        score_str = f"{grade_info['text']} / {int(possible)}" if possible else grade_info["text"]
+        submitted = True
+
+    url = f"{BB}/ultra/courses/{course.id}/outline/content/{content_id}/overview"
     return _Activity(
         id=content_id,
         title=title,
@@ -132,6 +167,8 @@ def _parse_activity_item(item: dict, course: "_Course") -> "_Activity | None":
         due_date=due,
         status=_status(due, submitted),
         url=url,
+        score=score_str,
+        description=_extract_description(item),
     )
 
 
@@ -142,19 +179,44 @@ async def _fetch_contents_recursive(page: Page, course: _Course) -> list[_Activi
     """
     js = """
     async ([baseUrl, courseId]) => {
-        const FOLDER_HANDLERS = [
-            'resource/x-bb-folder',
-            'resource/x-bb-module',
-            'resource/x-bb-moduletemplate',
-            'resource/x-bb-lesson',
-        ];
+        const FOLDER_HANDLERS = ['folder', 'module', 'moduletemplate', 'lesson'];
+
+        // ── 1. Obtener userId ────────────────────────────────────────────────
+        let userId = null;
+        try {
+            const me = await fetch(`${baseUrl}/learn/api/v1/users/me`);
+            if (me.ok) userId = (await me.json()).id;
+        } catch(e) {}
+
+        // ── 2. Obtener notas del gradebook para este curso ───────────────────
+        const grades = {};  // columnId -> { text, submitted }
+        if (userId) {
+            try {
+                let gradePage = `/learn/api/v1/courses/${courseId}/gradebook/users/${userId}?limit=200`;
+                while (gradePage) {
+                    const resp = await fetch(baseUrl + gradePage);
+                    if (!resp.ok) break;
+                    const data = await resp.json();
+                    for (const col of (data.results || [])) {
+                        if (!col.columnId) continue;
+                        const submitted = ['Graded', 'Submitted', 'InProgress', 'Completed']
+                                            .includes(col.status) || col.score != null;
+                        const score = col.score ?? col.displayGrade?.score ?? null;
+                        const text = col.displayGrade?.text ?? (score != null ? String(score) : null);
+                        grades[col.columnId] = { text, submitted };
+                    }
+                    gradePage = data.paging?.nextPage || null;
+                }
+            } catch(e) {}
+        }
+
+        // ── 3. Obtener contenidos recursivamente ─────────────────────────────
         const allItems = [];
         const visited = new Set();
 
         async function fetchChildren(contentId) {
             if (visited.has(contentId)) return;
             visited.add(contentId);
-
             let nextPage = `/learn/api/v1/courses/${courseId}/contents/${contentId}/children?limit=200&expand=assignedGroups,gradebookCategory,genericReadOnlyData,contentDetail`;
             while (nextPage) {
                 try {
@@ -164,16 +226,22 @@ async def _fetch_contents_recursive(page: Page, course: _Course) -> list[_Activi
                     const results = Array.isArray(data) ? data : (data.results || []);
                     for (const item of results) {
                         if (!item || typeof item !== 'object') continue;
+
+                        // Adjuntar nota si corresponde
+                        const ch = typeof item.contentHandler === 'string'
+                            ? item.contentHandler
+                            : (item.contentHandler?.id || '');
+                        const detail = item.contentDetail?.[ch] || {};
+                        const colId = detail?.test?.gradingColumn?.id || detail?.gradingColumn?.id;
+                        if (colId && grades[colId]) item._grade = grades[colId];
+
                         allItems.push(item);
-                        const handler = (item.contentHandler && item.contentHandler.id) || item.contentHandler || '';
-                        if (FOLDER_HANDLERS.some(f => handler.includes(f.split('/').pop()))) {
+                        if (FOLDER_HANDLERS.some(f => ch.includes(f))) {
                             await fetchChildren(item.id);
                         }
                     }
-                    nextPage = (data.paging && data.paging.nextPage) ? data.paging.nextPage : null;
-                } catch(e) {
-                    break;
-                }
+                    nextPage = data.paging?.nextPage || null;
+                } catch(e) { break; }
             }
         }
 
@@ -363,6 +431,8 @@ async def sync_all() -> None:
                 due_date=act.due_date,
                 status=act.status,
                 url=act.url,
+                score=act.score,
+                description=act.description,
             ),
         )
 

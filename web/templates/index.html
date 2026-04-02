@@ -127,12 +127,35 @@
       font-weight: 600;
     }
 
-    .badge-pending  { background: #fff3cd; color: #856404; }
-    .badge-overdue  { background: #f8d7da; color: #842029; }
+    .badge-pending   { background: #fff3cd; color: #856404; }
+    .badge-overdue   { background: #f8d7da; color: #842029; }
     .badge-submitted { background: #d1e7dd; color: #0a3622; }
-    .badge-unknown  { background: #e2e3e5; color: #41464b; }
+    .badge-unknown   { background: #e2e3e5; color: #41464b; }
 
     .due-urgent { color: #c0392b; font-weight: 600; }
+
+    /* Descripción expandible */
+    details { display: inline; }
+    details summary {
+      list-style: none;
+      cursor: pointer;
+      color: #4361ee;
+      font-weight: 500;
+    }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::after { content: " ▸"; font-size: 0.7em; opacity: 0.7; }
+    details[open] summary::after { content: " ▾"; }
+    .description-box {
+      margin-top: 0.5rem;
+      padding: 0.6rem 0.9rem;
+      background: #f8f9ff;
+      border-left: 3px solid #4361ee;
+      border-radius: 0 6px 6px 0;
+      font-size: 0.85rem;
+      color: #333;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
 
     .empty {
       text-align: center;
@@ -192,7 +215,14 @@
           {% for a in activities %}
           <tr>
             <td class="title-cell">
+              {% if a.description %}
+              <details>
+                <summary><a href="{{ a.url }}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">{{ a.title }}</a></summary>
+                <div class="description-box">{{ a.description }}</div>
+              </details>
+              {% else %}
               <a href="{{ a.url }}" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
+              {% endif %}
             </td>
             <td>
               {% if a.status == 'overdue' %}
@@ -207,7 +237,9 @@
               {% elif a.status == 'overdue' %}
                 <span class="badge badge-overdue">Vencida</span>
               {% elif a.status == 'submitted' %}
-                <span class="badge badge-submitted">Entregada</span>
+                <span class="badge badge-submitted">
+                  Entregada{% if a.score %} · {{ a.score }}{% endif %}
+                </span>
               {% else %}
                 <span class="badge badge-unknown">{{ a.status }}</span>
               {% endif %}
