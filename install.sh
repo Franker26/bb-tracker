@@ -34,7 +34,11 @@ start_spin() {
 }
 
 stop_spin() {
-    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null && _spin_pid=""
+    if [ -n "$_spin_pid" ]; then
+        kill "$_spin_pid" 2>/dev/null
+        wait "$_spin_pid" 2>/dev/null
+        _spin_pid=""
+    fi
     printf "${CLR}  ${G}✔${RESET}  %s\n" "$1"
 }
 
@@ -104,11 +108,12 @@ if docker info >/dev/null 2>&1; then
 else
     DC="sudo docker"
 fi
-if $DC compose version >/dev/null 2>&1; then
-    COMPOSE="$DC compose"
-elif command -v docker-compose >/dev/null 2>&1; then
+# Preferir docker-compose v1 si está disponible (evita conflictos de nombres)
+if command -v docker-compose >/dev/null 2>&1; then
     COMPOSE="docker-compose"
     [ "$DC" = "sudo docker" ] && COMPOSE="sudo docker-compose"
+elif $DC compose version >/dev/null 2>&1; then
+    COMPOSE="$DC compose"
 else
     pkg docker-compose-plugin
     COMPOSE="$DC compose"
