@@ -127,6 +127,8 @@ if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get install -y -q python3-full 2>/dev/null || sudo apt-get install -y -q python3-venv python3-pip
 fi
 python3 -m venv --clear "$VENV_DIR"
+# Ubuntu 24.04 copies EXTERNALLY-MANAGED into the venv — remove it
+find "$VENV_DIR" -name "EXTERNALLY-MANAGED" -delete
 "$VENV_DIR/bin/python" -m pip install -q -r "$INSTALL_DIR/requirements-cli.txt"
 success "Dependencias del CLI instaladas"
 
