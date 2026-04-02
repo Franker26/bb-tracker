@@ -2,7 +2,7 @@
 # install.sh — Instala bb-tracker en Linux
 # curl -fsSL https://raw.githubusercontent.com/Franker26/bb-tracker/main/install.sh | bash
 
-set -e
+set -euo pipefail
 
 REPO_URL="https://github.com/Franker26/bb-tracker.git"
 INSTALL_DIR="$HOME/.local/share/bb-tracker"
@@ -11,107 +11,107 @@ CMD="$BIN_DIR/bb-tracker"
 
 # ── Colores ───────────────────────────────────────────────────────────────────
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m'
-M='\033[0;35m' B='\033[0;34m' BOLD='\033[1m' DIM='\033[2m' RESET='\033[0m'
-W='\033[1;37m'
+BOLD='\033[1m' DIM='\033[2m' W='\033[1;37m' RESET='\033[0m'
+CLR='\r\033[2K'   # vuelve al inicio y borra la línea completa
 
 # ── Spinner ───────────────────────────────────────────────────────────────────
 _spin_pid=""
+_spin_msg=""
+
 start_spin() {
-    local msg="$1"
+    _spin_msg="$1"
     local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     (
         local i=0
         while true; do
-            printf "\r  ${C}${frames[$i]}${RESET}  %s   " "$msg"
-            i=$(( (i+1) % ${#frames[@]} ))
+            printf "${CLR}  ${C}${frames[$i]}${RESET}  %s" "$_spin_msg"
+            i=$(( (i+1) % 10 ))
             sleep 0.08
         done
     ) &
     _spin_pid=$!
     disown
 }
+
 stop_spin() {
-    local msg="$1"
-    if [ -n "$_spin_pid" ]; then
-        kill "$_spin_pid" 2>/dev/null || true
-        _spin_pid=""
-    fi
-    printf "\r  ${G}✔${RESET}  %s\n" "$msg"
+    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null && _spin_pid=""
+    printf "${CLR}  ${G}✔${RESET}  %s\n" "$1"
 }
-fail_spin() {
-    local msg="$1"
-    if [ -n "$_spin_pid" ]; then
-        kill "$_spin_pid" 2>/dev/null || true
-        _spin_pid=""
+
+# ── Limpieza en caso de error ─────────────────────────────────────────────────
+_installed=false
+on_error() {
+    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null && _spin_pid=""
+    printf "${CLR}  ${R}✘${RESET}  Instalación fallida\n\n"
+    if [ "$_installed" = false ]; then
+        printf "  ${DIM}Limpiando archivos instalados...${RESET}\n"
+        (cd "$INSTALL_DIR" 2>/dev/null && $COMPOSE down -v 2>/dev/null) || true
+        rm -rf "$INSTALL_DIR"
+        rm -f "$CMD"
+        printf "  ${DIM}Limpieza completa.${RESET}\n"
     fi
-    printf "\r  ${R}✘${RESET}  %s\n" "$msg"
-    exit 1
+    echo
 }
+trap on_error ERR
+
+# ── Gestor de paquetes ────────────────────────────────────────────────────────
+if command -v apt-get >/dev/null 2>&1; then
+    PKG="sudo apt-get install -y -q"
+elif command -v dnf >/dev/null 2>&1; then
+    PKG="sudo dnf install -y -q"
+elif command -v pacman >/dev/null 2>&1; then
+    PKG="sudo pacman -S --noconfirm --quiet"
+else
+    PKG=""
+fi
+pkg() { [ -n "$PKG" ] && $PKG "$@" >/dev/null 2>&1 || true; }
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 clear
 echo
-echo -e "  ${B}${BOLD}██████╗ ██████╗       ████████╗██████╗  █████╗  ██████╗██╗  ██╗███████╗██████╗ ${RESET}"
-echo -e "  ${B}${BOLD}██╔══██╗██╔══██╗         ██╔══╝██╔══██╗██╔══██╗██╔════╝██║ ██╔╝██╔════╝██╔══██╗${RESET}"
-echo -e "  ${B}${BOLD}██████╔╝██████╔╝         ██║   ██████╔╝███████║██║     █████╔╝ █████╗  ██████╔╝${RESET}"
-echo -e "  ${B}${BOLD}██╔══██╗██╔══██╗         ██║   ██╔══██╗██╔══██║██║     ██╔═██╗ ██╔══╝  ██╔══██╗${RESET}"
-echo -e "  ${B}${BOLD}██████╔╝██████╔╝         ██║   ██║  ██║██║  ██║╚██████╗██║  ██╗███████╗██║  ██║${RESET}"
-echo -e "  ${B}${BOLD}╚═════╝ ╚═════╝          ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝${RESET}"
+echo -e "  ${BOLD}${C}██████╗ ██████╗       ████████╗██████╗  █████╗  ██████╗██╗  ██╗███████╗██████╗ ${RESET}"
+echo -e "  ${BOLD}${C}██╔══██╗██╔══██╗         ██╔══╝██╔══██╗██╔══██╗██╔════╝██║ ██╔╝██╔════╝██╔══██╗${RESET}"
+echo -e "  ${BOLD}${C}██████╔╝██████╔╝         ██║   ██████╔╝███████║██║     █████╔╝ █████╗  ██████╔╝${RESET}"
+echo -e "  ${BOLD}${C}██╔══██╗██╔══██╗         ██║   ██╔══██╗██╔══██║██║     ██╔═██╗ ██╔══╝  ██╔══██╗${RESET}"
+echo -e "  ${BOLD}${C}██████╔╝██████╔╝         ██║   ██║  ██║██║  ██║╚██████╗██║  ██╗███████╗██║  ██║${RESET}"
+echo -e "  ${BOLD}${C}╚═════╝ ╚═════╝          ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝${RESET}"
 echo
-echo -e "  ${DIM}Blackboard activity tracker — by ${W}Franker26${RESET}"
-echo -e "  ${DIM}────────────────────────────────────────────${RESET}"
+echo -e "  ${DIM}Blackboard activity tracker  ·  by ${W}Franker26${RESET}"
+echo -e "  ${DIM}──────────────────────────────────────────────${RESET}"
 echo
-
-# ── Gestor de paquetes ────────────────────────────────────────────────────────
-if command -v apt-get >/dev/null 2>&1; then
-    PKG_INSTALL="sudo apt-get install -y -q"
-elif command -v dnf >/dev/null 2>&1; then
-    PKG_INSTALL="sudo dnf install -y -q"
-elif command -v pacman >/dev/null 2>&1; then
-    PKG_INSTALL="sudo pacman -S --noconfirm --quiet"
-else
-    PKG_INSTALL=""
-fi
-
-pkg_install() {
-    $PKG_INSTALL "$@" >/dev/null 2>&1 || true
-}
 
 # ── 1. git ────────────────────────────────────────────────────────────────────
-start_spin "Verificando git..."
-if ! command -v git >/dev/null 2>&1; then
-    pkg_install git || fail_spin "No se pudo instalar git"
-fi
+start_spin "git..."
+command -v git >/dev/null 2>&1 || pkg git
 stop_spin "git"
 
 # ── 2. Python ─────────────────────────────────────────────────────────────────
-start_spin "Verificando Python..."
-if ! command -v python3 >/dev/null 2>&1; then
-    pkg_install python3 || fail_spin "No se pudo instalar python3"
-fi
-pkg_install python3-full python3-venv >/dev/null 2>&1 || true
+start_spin "Python..."
+command -v python3 >/dev/null 2>&1 || pkg python3
+pkg python3-full python3-venv
 stop_spin "Python"
 
 # ── 3. Docker ─────────────────────────────────────────────────────────────────
-start_spin "Verificando Docker..."
+start_spin "Docker..."
 if ! command -v docker >/dev/null 2>&1; then
     stop_spin "Instalando Docker..."
     curl -fsSL https://get.docker.com | sudo sh >/dev/null 2>&1
     sudo usermod -aG docker "$USER" 2>/dev/null || true
+    start_spin "Docker..."
 fi
 if docker info >/dev/null 2>&1; then
-    DOCKER_PREFIX=""
+    DC="docker"
 else
-    DOCKER_PREFIX="sudo"
+    DC="sudo docker"
 fi
-if $DOCKER_PREFIX docker compose version >/dev/null 2>&1; then
-    COMPOSE="$DOCKER_PREFIX docker compose"
+if $DC compose version >/dev/null 2>&1; then
+    COMPOSE="$DC compose"
 elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE="${DOCKER_PREFIX} docker-compose"
-    COMPOSE="${COMPOSE# }"
+    COMPOSE="docker-compose"
+    [ "$DC" = "sudo docker" ] && COMPOSE="sudo docker-compose"
 else
-    pkg_install docker-compose-plugin
-    COMPOSE="$DOCKER_PREFIX docker compose"
+    pkg docker-compose-plugin
+    COMPOSE="$DC compose"
 fi
 stop_spin "Docker"
 
@@ -124,25 +124,23 @@ else
     git clone -q "$REPO_URL" "$INSTALL_DIR"
 fi
 [ ! -f "$INSTALL_DIR/.env" ] && cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
-stop_spin "Código descargado"
+stop_spin "bb-tracker descargado"
 
 # ── 5. Dependencias CLI ───────────────────────────────────────────────────────
-start_spin "Instalando dependencias del CLI..."
-VENV_DIR="$INSTALL_DIR/.venv"
-python3 -m venv --clear "$VENV_DIR" >/dev/null 2>&1
-find "$VENV_DIR" -name "EXTERNALLY-MANAGED" -delete
-"$VENV_DIR/bin/python" -m pip install -q -r "$INSTALL_DIR/requirements-cli.txt" >/dev/null 2>&1 \
-    || fail_spin "Error instalando dependencias del CLI"
+start_spin "Dependencias del CLI..."
+VENV="$INSTALL_DIR/.venv"
+python3 -m venv --clear "$VENV" >/dev/null 2>&1
+find "$VENV" -name "EXTERNALLY-MANAGED" -delete 2>/dev/null || true
+"$VENV/bin/python" -m pip install -q -r "$INSTALL_DIR/requirements-cli.txt" >/dev/null 2>&1
 stop_spin "Dependencias del CLI"
 
 # ── 6. Imagen Docker ──────────────────────────────────────────────────────────
-start_spin "Construyendo imagen Docker..."
-(cd "$INSTALL_DIR" && $COMPOSE build -q 2>/dev/null) \
-    || fail_spin "Error construyendo imagen Docker"
-stop_spin "Imagen Docker lista"
+start_spin "Imagen Docker..."
+(cd "$INSTALL_DIR" && $COMPOSE build -q 2>/dev/null)
+stop_spin "Imagen Docker"
 
 # ── 7. Comando bb-tracker ─────────────────────────────────────────────────────
-start_spin "Creando comando bb-tracker..."
+start_spin "Comando bb-tracker..."
 mkdir -p "$BIN_DIR"
 cat > "$CMD" << 'WRAPPER'
 #!/usr/bin/env bash
@@ -153,34 +151,34 @@ WRAPPER
 chmod +x "$CMD"
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     SHELL_RC="$HOME/.bashrc"
-    [[ "$SHELL" == */zsh ]] && SHELL_RC="$HOME/.zshrc"
+    [[ "${SHELL:-}" == */zsh ]] && SHELL_RC="$HOME/.zshrc"
     echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_RC"
     export PATH="$HOME/.local/bin:$PATH"
 fi
-stop_spin "Comando bb-tracker instalado"
+stop_spin "Comando bb-tracker"
 
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
-# Detener cualquier contenedor en el puerto 8000
-{ docker ps -q 2>/dev/null || sudo docker ps -q 2>/dev/null || true; } \
-  | while read -r cid; do
-      { docker port "$cid" 2>/dev/null || sudo docker port "$cid" 2>/dev/null || true; } \
-        | grep -q "8000" && { docker stop "$cid" >/dev/null 2>&1 || sudo docker stop "$cid" >/dev/null 2>&1 || true; }
-    done
-(cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null || true)
-sleep 1
-COMPOSE_ERR=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 ) || {
-    kill "$_spin_pid" 2>/dev/null; _spin_pid=""
-    printf "\r  ${R}✘${RESET}  Error iniciando el contenedor\n"
-    echo
-    echo -e "  ${DIM}Detalle:${RESET}"
-    echo "$COMPOSE_ERR" | sed 's/^/    /'
-    echo
-    exit 1
-}
+
+# Detener cualquier contenedor que use el puerto 8000
+docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null \
+  | grep '8000' \
+  | awk '{print $1}' \
+  | xargs -r docker stop >/dev/null 2>&1 || true
+
+sudo docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null \
+  | grep '8000' \
+  | awk '{print $1}' \
+  | xargs -r sudo docker stop >/dev/null 2>&1 || true
+
+(cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null) || true
+sleep 2
+(cd "$INSTALL_DIR" && $COMPOSE up -d 2>/dev/null)
+
 stop_spin "Contenedor en ejecución"
 
 # ── Listo ─────────────────────────────────────────────────────────────────────
+_installed=true
 echo
 echo -e "  ${G}${BOLD}✔  ¡Instalación completa!${RESET}"
 echo
