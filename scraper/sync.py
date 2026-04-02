@@ -49,6 +49,8 @@ class _Activity:
     due_date: datetime | None
     status: str
     url: str
+    score: str | None = None
+    description: str | None = None
 
 
 def _parse_iso(raw: str | None) -> datetime | None:
@@ -95,17 +97,26 @@ async def _parse_courses(data: dict) -> list[_Course]:
     return courses
 
 
-def _extract_description(item: dict) -> str | None:
+def _extract_description(item: dict, handler: str = "") -> str | None:
     """Extrae la descripción/instrucciones de un item de contenido."""
     desc = item.get("description", "")
-    if desc and isinstance(desc, str):
-        return desc.strip() or None
+    if desc and isinstance(desc, str) and desc.strip():
+        return desc.strip()
     # Fallback: body.rawText
     body = item.get("body", {})
     if isinstance(body, dict):
         raw = body.get("rawText", "").strip()
         if raw:
             return raw
+    # Fallback: contentDetail assessment description
+    if handler:
+        detail = item.get("contentDetail", {}).get(handler, {})
+        assess_desc = detail.get("test", {}).get("assessment", {}).get("description", {})
+        if isinstance(assess_desc, dict):
+            for key in ("displayText", "rawText"):
+                val = assess_desc.get(key, "").strip()
+                if val:
+                    return val
     return None
 
 
@@ -141,7 +152,7 @@ def _parse_activity_item(item: dict, course: "_Course") -> "_Activity | None":
     submitted = bool(
         grade_info.get("submitted")
         or item.get("submitted")
-        or item.get("state") in ("Started", "Completed")
+        or item.get("state") == "Completed"
     )
     score_str: str | None = None
     if grade_info.get("text"):
@@ -158,7 +169,11 @@ def _parse_activity_item(item: dict, course: "_Course") -> "_Activity | None":
         score_str = f"{grade_info['text']} / {int(possible)}" if possible else grade_info["text"]
         submitted = True
 
-    url = f"{BB}/ultra/courses/{course.id}/outline/content/{content_id}/overview"
+    body_url = item.get("body", {}).get("webLocation", "") if isinstance(item.get("body"), dict) else ""
+    if body_url:
+        url = body_url.replace("/embedded/", "/")
+    else:
+        url = f"{BB}/ultra/courses/{course.id}/outline"
     return _Activity(
         id=content_id,
         title=title,
@@ -168,7 +183,7 @@ def _parse_activity_item(item: dict, course: "_Course") -> "_Activity | None":
         status=_status(due, submitted),
         url=url,
         score=score_str,
-        description=_extract_description(item),
+        description=_extract_description(item, handler),
     )
 
 
@@ -188,27 +203,25 @@ async def _fetch_contents_recursive(page: Page, course: _Course) -> list[_Activi
             if (me.ok) userId = (await me.json()).id;
         } catch(e) {}
 
-        // ── 2. Obtener notas del gradebook para este curso ───────────────────
-        const grades = {};  // columnId -> { text, submitted }
-        if (userId) {
+        // ── 2. Helper para obtener nota por columna ──────────────────────────
+        // /gradebook/users/{id} devuelve 404 para estudiantes;
+        // /gradebook/columns/{colId}/users/{id} sí funciona.
+        let firstColStatus = null;
+        async function fetchColumnGrade(colId) {
             try {
-                let gradePage = `/learn/api/v1/courses/${courseId}/gradebook/users/${userId}?limit=200`;
-                while (gradePage) {
-                    const resp = await fetch(baseUrl + gradePage);
-                    if (!resp.ok) break;
-                    const data = await resp.json();
-                    for (const col of (data.results || [])) {
-                        if (!col.columnId) continue;
-                        const submitted = ['Graded', 'Submitted', 'InProgress', 'Completed']
-                                            .includes(col.status) || col.score != null;
-                        const score = col.score ?? col.displayGrade?.score ?? null;
-                        const text = col.displayGrade?.text ?? (score != null ? String(score) : null);
-                        grades[col.columnId] = { text, submitted };
-                    }
-                    gradePage = data.paging?.nextPage || null;
-                }
-            } catch(e) {}
+                const resp = await fetch(`${baseUrl}/learn/api/v1/courses/${courseId}/gradebook/columns/${colId}/users/${userId}`);
+                if (firstColStatus === null) firstColStatus = resp.status;
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                const score = data.score ?? data.displayGrade?.score ?? null;
+                const text  = data.displayGrade?.text ?? (score != null ? String(score) : null);
+                const submitted = ['Graded', 'Submitted', 'InProgress', 'Completed'].includes(data.status)
+                               || score != null;
+                return { text, submitted, status: data.status };
+            } catch(e) { return null; }
         }
+        // Cuántos items tienen colId
+        let colIdCount = 0;
 
         // ── 3. Obtener contenidos recursivamente ─────────────────────────────
         const allItems = [];
@@ -233,7 +246,11 @@ async def _fetch_contents_recursive(page: Page, course: _Course) -> list[_Activi
                             : (item.contentHandler?.id || '');
                         const detail = item.contentDetail?.[ch] || {};
                         const colId = detail?.test?.gradingColumn?.id || detail?.gradingColumn?.id;
-                        if (colId && grades[colId]) item._grade = grades[colId];
+                        if (colId && userId) {
+                            colIdCount++;
+                            const grade = await fetchColumnGrade(colId);
+                            if (grade) item._grade = grade;
+                        }
 
                         allItems.push(item);
                         if (FOLDER_HANDLERS.some(f => ch.includes(f))) {
@@ -246,40 +263,17 @@ async def _fetch_contents_recursive(page: Page, course: _Course) -> list[_Activi
         }
 
         await fetchChildren('ROOT');
-        return allItems;
+        const withGrade = allItems.filter(i => i._grade).length;
+        return { items: allItems, debug: { userId, withGrade, colIdCount, firstColStatus } };
     }
     """
     try:
-        items = await page.evaluate(js, [BB, course.id])
+        result = await page.evaluate(js, [BB, course.id])
+        if isinstance(result, dict):
+            items = result.get("items", [])
+        else:
+            items = result
         logger.debug("Curso %s: %d items raw del API", course.name, len(items))
-
-        # Loguear handlers únicos para diagnóstico
-        handlers_found = set()
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            ch = item.get("contentHandler")
-            if isinstance(ch, dict):
-                h = ch.get("id", "")
-            elif isinstance(ch, str):
-                h = ch
-            else:
-                h = item.get("type", "sin-handler")
-            if h:
-                handlers_found.add(h)
-        if handlers_found:
-            logger.debug("Handlers en %s: %s", course.name, handlers_found)
-
-        # Loguear estructura de los primeros items de tipo asmt/assignment
-        import json
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            ch = item.get("contentHandler")
-            h = (ch.get("id", "") if isinstance(ch, dict) else ch) or ""
-            if "asmt-test-link" in h or "assignment" in h:
-                logger.debug("SAMPLE item (%s): %s", h, json.dumps(item, default=str))
-                break
 
         activities = []
         for item in items:
