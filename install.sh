@@ -173,31 +173,31 @@ stop_spin "Comando bb-tracker"
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
 
-# Buscar puerto libre — intenta conectar; si falla, el puerto está libre
-PORT=8000
-while (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do
-    exec 3>&- 2>/dev/null
-    PORT=$(( PORT + 1 ))
-    [ "$PORT" -gt 8100 ] && fail_step "No se encontró un puerto libre entre 8000-8100"
-done
-exec 3>&- 2>/dev/null || true
-
-# Escribir BB_PORT en el .env
-if grep -q '^BB_PORT=' "$INSTALL_DIR/.env" 2>/dev/null; then
-    sed -i "s/^BB_PORT=.*/BB_PORT=${PORT}/" "$INSTALL_DIR/.env"
-else
-    echo "BB_PORT=${PORT}" >> "$INSTALL_DIR/.env"
-fi
-
-# Detener contenedores previos
+# Detener contenedores previos del proyecto
 timeout 15 bash -c "cd \"$INSTALL_DIR\" && $COMPOSE down 2>/dev/null" || true
 sleep 1
 
-UP_LOG=$(mktemp)
-timeout 30 bash -c "cd \"$INSTALL_DIR\" && $COMPOSE up -d" >"$UP_LOG" 2>&1
-UP_EXIT=$?
-[ "$UP_EXIT" -ne 0 ] && fail_step "Error iniciando el contenedor" "$(cat "$UP_LOG")"
-rm -f "$UP_LOG"
+# Intentar levantar el contenedor; si el puerto está ocupado, probar el siguiente
+PORT=8000
+while [ "$PORT" -le 8020 ]; do
+    if grep -q '^BB_PORT=' "$INSTALL_DIR/.env" 2>/dev/null; then
+        sed -i "s/^BB_PORT=.*/BB_PORT=${PORT}/" "$INSTALL_DIR/.env"
+    else
+        echo "BB_PORT=${PORT}" >> "$INSTALL_DIR/.env"
+    fi
+    UP_LOG=$(mktemp)
+    timeout 30 bash -c "cd \"$INSTALL_DIR\" && $COMPOSE up -d" >"$UP_LOG" 2>&1
+    UP_EXIT=$?
+    if [ "$UP_EXIT" -eq 0 ]; then
+        rm -f "$UP_LOG"; break
+    elif grep -q "address already in use" "$UP_LOG" 2>/dev/null; then
+        rm -f "$UP_LOG"
+        PORT=$(( PORT + 1 ))
+    else
+        fail_step "Error iniciando el contenedor" "$(cat "$UP_LOG")"
+    fi
+done
+[ "$PORT" -gt 8020 ] && fail_step "No se encontró puerto libre entre 8000-8020"
 stop_spin "Contenedor en ejecución  (puerto ${PORT})"
 
 # ── Listo ─────────────────────────────────────────────────────────────────────
