@@ -173,18 +173,19 @@ stop_spin "Comando bb-tracker"
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
 
-# Buscar un puerto libre desde 8000 (intenta bindear para verificar)
+# Buscar puerto libre (sin SO_REUSEADDR para chequeo estricto)
 PORT=8000
-while ! python3 -c "
+while ! python3 - <<PYEOF 2>/dev/null
 import socket, sys
 s = socket.socket()
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 try:
-    s.bind(('0.0.0.0', $PORT))
+    s.bind(('', ${PORT}))
     s.close(); sys.exit(0)
 except: sys.exit(1)
-" 2>/dev/null; do
+PYEOF
+do
     PORT=$(( PORT + 1 ))
+    [ "$PORT" -gt 8100 ] && fail_step "No se encontró un puerto libre entre 8000-8100"
 done
 
 # Escribir BB_PORT en el .env
@@ -194,13 +195,15 @@ else
     echo "BB_PORT=${PORT}" >> "$INSTALL_DIR/.env"
 fi
 
-# Detener contenedores previos del proyecto
-(cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null) || true
+# Detener contenedores previos
+timeout 15 bash -c "cd \"$INSTALL_DIR\" && $COMPOSE down 2>/dev/null" || true
 sleep 1
 
-UP_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 )
+UP_LOG=$(mktemp)
+timeout 30 bash -c "cd \"$INSTALL_DIR\" && $COMPOSE up -d" >"$UP_LOG" 2>&1
 UP_EXIT=$?
-[ "$UP_EXIT" -ne 0 ] && fail_step "Error iniciando el contenedor" "$UP_OUT"
+[ "$UP_EXIT" -ne 0 ] && fail_step "Error iniciando el contenedor" "$(cat "$UP_LOG")"
+rm -f "$UP_LOG"
 stop_spin "Contenedor en ejecución  (puerto ${PORT})"
 
 # ── Listo ─────────────────────────────────────────────────────────────────────
