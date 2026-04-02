@@ -120,15 +120,10 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
     cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
 fi
 
-# ── 6. Instalar dependencias Python del CLI (venv) ───────────────────────────
+# ── 6. Instalar dependencias Python del CLI ──────────────────────────────────
 info "Instalando dependencias Python del CLI..."
-VENV_DIR="$INSTALL_DIR/.venv"
-# python3-venv viene separado en Debian/Ubuntu
-if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get install -y -q python3-venv 2>/dev/null || true
-fi
-python3 -m venv "$VENV_DIR"
-"$VENV_DIR/bin/pip" install -q -r "$INSTALL_DIR/requirements-cli.txt"
+pip3 install --user -q --break-system-packages -r "$INSTALL_DIR/requirements-cli.txt" \
+  || pip3 install --user -q -r "$INSTALL_DIR/requirements-cli.txt"
 success "Dependencias del CLI instaladas"
 
 # ── 7. Construir imagen Docker ───────────────────────────────────────────────
@@ -142,7 +137,7 @@ cat > "$CMD" << 'WRAPPER'
 #!/usr/bin/env bash
 INSTALL_DIR="$HOME/.local/share/bb-tracker"
 cd "$INSTALL_DIR"
-exec "$INSTALL_DIR/.venv/bin/python" cli.py "$@"
+exec python3 cli.py "$@"
 WRAPPER
 chmod +x "$CMD"
 success "Comando bb-tracker creado"
