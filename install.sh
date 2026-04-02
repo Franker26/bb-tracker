@@ -142,7 +142,17 @@ stop_spin "Dependencias del CLI"
 
 # ── 6. Imagen Docker ──────────────────────────────────────────────────────────
 start_spin "Imagen Docker..."
-(cd "$INSTALL_DIR" && $COMPOSE build -q 2>/dev/null)
+set +e; trap - ERR
+BUILD_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE build) 2>&1 )
+BUILD_EXIT=$?
+set -e; trap on_error ERR
+if [ "$BUILD_EXIT" -ne 0 ]; then
+    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""
+    printf "${CLR}  ${R}✘${RESET}  Error construyendo imagen Docker\n\n"
+    printf "  ${DIM}Detalle:${RESET}\n"
+    echo "$BUILD_OUT" | tail -20 | sed 's/^/    /'
+    echo; rm -rf "$INSTALL_DIR"; rm -f "$CMD"; exit 1
+fi
 stop_spin "Imagen Docker"
 
 # ── 7. Comando bb-tracker ─────────────────────────────────────────────────────
@@ -179,10 +189,10 @@ sudo docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null \
 
 (cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null) || true
 sleep 2
-set +e
+set +e; trap - ERR
 UP_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 )
 UP_EXIT=$?
-set -e
+set -e; trap on_error ERR
 if [ "$UP_EXIT" -ne 0 ]; then
     [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""
     printf "${CLR}  ${R}✘${RESET}  Error iniciando el contenedor\n\n"
