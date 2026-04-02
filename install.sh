@@ -161,13 +161,14 @@ stop_spin "Comando bb-tracker instalado"
 
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
-# Detener cualquier contenedor que ocupe el puerto 8000
-for cid in $(docker ps -q 2>/dev/null || sudo docker ps -q 2>/dev/null); do
-    if (docker port "$cid" 2>/dev/null || sudo docker port "$cid" 2>/dev/null) | grep -q "8000"; then
-        docker stop "$cid" >/dev/null 2>&1 || sudo docker stop "$cid" >/dev/null 2>&1 || true
-    fi
-done
-(cd "$INSTALL_DIR" && $COMPOSE down 2>/dev/null || true)
+# Detener cualquier contenedor en el puerto 8000
+{ docker ps -q 2>/dev/null || sudo docker ps -q 2>/dev/null || true; } \
+  | while read -r cid; do
+      { docker port "$cid" 2>/dev/null || sudo docker port "$cid" 2>/dev/null || true; } \
+        | grep -q "8000" && { docker stop "$cid" >/dev/null 2>&1 || sudo docker stop "$cid" >/dev/null 2>&1 || true; }
+    done
+(cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null || true)
+sleep 1
 COMPOSE_ERR=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 ) || {
     kill "$_spin_pid" 2>/dev/null; _spin_pid=""
     printf "\r  ${R}✘${RESET}  Error iniciando el contenedor\n"
