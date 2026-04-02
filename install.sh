@@ -160,15 +160,29 @@ stop_spin "Comando bb-tracker"
 
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
-# Liberar puerto 8000
-docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null | grep '8000' | awk '{print $1}' | xargs -r docker stop >/dev/null 2>&1 || true
-sudo docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null | grep '8000' | awk '{print $1}' | xargs -r sudo docker stop >/dev/null 2>&1 || true
+
+# Buscar un puerto libre desde 8000
+PORT=8000
+while ss -tlnp 2>/dev/null | grep -q ":${PORT} " || \
+      lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do
+    PORT=$(( PORT + 1 ))
+done
+
+# Escribir BB_PORT en el .env
+if grep -q '^BB_PORT=' "$INSTALL_DIR/.env" 2>/dev/null; then
+    sed -i "s/^BB_PORT=.*/BB_PORT=${PORT}/" "$INSTALL_DIR/.env"
+else
+    echo "BB_PORT=${PORT}" >> "$INSTALL_DIR/.env"
+fi
+
+# Detener contenedores previos del proyecto
 (cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null) || true
 sleep 1
+
 UP_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 )
 UP_EXIT=$?
 [ "$UP_EXIT" -ne 0 ] && fail_step "Error iniciando el contenedor" "$UP_OUT"
-stop_spin "Contenedor en ejecución"
+stop_spin "Contenedor en ejecución  (puerto ${PORT})"
 
 # ── Listo ─────────────────────────────────────────────────────────────────────
 echo
@@ -176,5 +190,5 @@ echo -e "  ${G}${BOLD}✔  ¡Instalación completa!${RESET}"
 echo
 echo -e "  ${DIM}Próximos pasos:${RESET}"
 echo -e "  ${C}1.${RESET} Configurá tus credenciales  →  ${BOLD}bb-tracker${RESET}"
-echo -e "  ${C}2.${RESET} Abrí el dashboard           →  ${BOLD}http://localhost:8000${RESET}"
+echo -e "  ${C}2.${RESET} Abrí el dashboard           →  ${BOLD}http://localhost:${PORT}${RESET}"
 echo
