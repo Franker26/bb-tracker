@@ -1,0 +1,92 @@
+# Endpoints capturados — palermo.blackboard.com
+
+> Copiar este archivo a `endpoints.md` y completar con los datos reales.
+> `endpoints.md` está en .gitignore (no se commitea).
+>
+> Cómo capturar: abrir https://palermo.blackboard.com, F12 → Network → XHR,
+> navegar la plataforma y copiar acá los requests relevantes.
+
+---
+
+## Auth
+
+**Endpoint:** `POST https://palermo.blackboard.com/<ruta>`
+
+**Headers:**
+```
+Content-Type: application/json
+User-Agent: <copiar de mitmproxy>
+```
+
+**Body:**
+```json
+{
+  "username": "...",
+  "password": "..."
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "...",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "user_id": "..."
+}
+```
+
+---
+
+## Cursos del usuario
+
+**Endpoint:** `GET https://palermo.blackboard.com/<ruta>`
+
+**Headers:**
+```
+Authorization: Bearer <token>
+```
+
+**Response (schema):**
+```json
+{
+  "results": [
+    {
+      "courseId": "...",
+      "course": {
+        "name": "Nombre del curso",
+        ...
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Contenidos de un curso
+
+**Endpoint:** `GET https://palermo.blackboard.com/<ruta>/<course_id>/...`
+
+**Response (schema):**
+```json
+{
+  "results": [
+    {
+      "id": "...",
+      "title": "Trabajo Práctico 1",
+      "contentHandler": { "id": "resource/x-bb-assignment" },
+      "dueDate": "2025-06-15T23:59:00Z",
+      ...
+    }
+  ]
+}
+```
+
+---
+
+## Notas
+
+- User-Agent exacto de la app: `<completar>`
+- ¿Usa certificate pinning?: `<sí/no>`
+- Otros headers especiales: `<completar>`

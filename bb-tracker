@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# bb-tracker — lanzador del CLI de configuración
+# Para instalarlo globalmente: sudo ln -s "$(pwd)/bb-tracker" /usr/local/bin/bb-tracker
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+exec python3 "$SCRIPT_DIR/cli.py" "$@"
