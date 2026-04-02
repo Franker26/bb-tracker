@@ -2,62 +2,44 @@
 # install.sh — Instala bb-tracker en Linux
 # curl -fsSL https://raw.githubusercontent.com/Franker26/bb-tracker/main/install.sh | bash
 
-set -euo pipefail
-
 REPO_URL="https://github.com/Franker26/bb-tracker.git"
 INSTALL_DIR="$HOME/.local/share/bb-tracker"
 BIN_DIR="$HOME/.local/bin"
 CMD="$BIN_DIR/bb-tracker"
 
 # ── Colores ───────────────────────────────────────────────────────────────────
-R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m'
+R='\033[0;31m' G='\033[0;32m' C='\033[0;36m'
 BOLD='\033[1m' DIM='\033[2m' W='\033[1;37m' RESET='\033[0m'
-CLR='\r\033[2K'   # vuelve al inicio y borra la línea completa
+CLR='\r\033[2K'
 
 # ── Spinner ───────────────────────────────────────────────────────────────────
 _spin_pid=""
-_spin_msg=""
-
 start_spin() {
-    _spin_msg="$1"
-    local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-    (
-        local i=0
-        while true; do
-            printf "${CLR}  ${C}${frames[$i]}${RESET}  %s" "$_spin_msg"
-            i=$(( (i+1) % 10 ))
-            sleep 0.08
-        done
-    ) &
+    local msg="$1" i=0
+    local f=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    ( while true; do
+        printf "${CLR}  ${C}${f[$i]}${RESET}  %s" "$msg"
+        i=$(( (i+1) % 10 )); sleep 0.08
+      done ) &
     _spin_pid=$!
     disown
 }
-
 stop_spin() {
-    if [ -n "$_spin_pid" ]; then
-        kill "$_spin_pid" 2>/dev/null
-        wait "$_spin_pid" 2>/dev/null
-        _spin_pid=""
-    fi
+    [ -n "$_spin_pid" ] && { kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""; }
     printf "${CLR}  ${G}✔${RESET}  %s\n" "$1"
 }
-
-# ── Limpieza en caso de error ─────────────────────────────────────────────────
-_installed=false
-on_error() {
-    local exit_code=$?
-    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""
-    printf "${CLR}  ${R}✘${RESET}  Instalación fallida (código: %s)\n\n" "$exit_code"
-    if [ "$_installed" = false ]; then
-        printf "  ${DIM}Limpiando archivos instalados...${RESET}\n"
-        (cd "$INSTALL_DIR" 2>/dev/null && $COMPOSE down -v 2>/dev/null) || true
-        rm -rf "$INSTALL_DIR"
-        rm -f "$CMD"
-        printf "  ${DIM}Limpieza completa.${RESET}\n"
-    fi
+fail_step() {
+    [ -n "$_spin_pid" ] && { kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""; }
+    printf "${CLR}  ${R}✘${RESET}  %s\n" "$1"
+    [ -n "$2" ] && { echo; echo "$2" | sed 's/^/    /'; }
     echo
+    # Limpieza
+    [ -f "$INSTALL_DIR/docker-compose.yml" ] && (cd "$INSTALL_DIR" && $COMPOSE down -v 2>/dev/null) || true
+    rm -rf "$INSTALL_DIR"
+    rm -f "$CMD"
+    printf "  ${DIM}Limpieza completa.${RESET}\n\n"
+    exit 1
 }
-trap on_error ERR
 
 # ── Gestor de paquetes ────────────────────────────────────────────────────────
 if command -v apt-get >/dev/null 2>&1; then
@@ -69,7 +51,7 @@ elif command -v pacman >/dev/null 2>&1; then
 else
     PKG=""
 fi
-pkg() { [ -n "$PKG" ] && $PKG "$@" >/dev/null 2>&1 || true; }
+pkg() { [ -n "$PKG" ] && $PKG "$@" >/dev/null 2>&1; return 0; }
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 clear
@@ -88,46 +70,56 @@ echo
 # ── 1. git ────────────────────────────────────────────────────────────────────
 start_spin "git..."
 command -v git >/dev/null 2>&1 || pkg git
+command -v git >/dev/null 2>&1 || fail_step "git no encontrado y no se pudo instalar"
 stop_spin "git"
 
 # ── 2. Python ─────────────────────────────────────────────────────────────────
 start_spin "Python..."
 command -v python3 >/dev/null 2>&1 || pkg python3
 pkg python3-full python3-venv
+command -v python3 >/dev/null 2>&1 || fail_step "python3 no encontrado y no se pudo instalar"
 stop_spin "Python"
 
 # ── 3. Docker ─────────────────────────────────────────────────────────────────
 start_spin "Docker..."
 if ! command -v docker >/dev/null 2>&1; then
     stop_spin "Instalando Docker..."
-    curl -fsSL https://get.docker.com | sudo sh >/dev/null 2>&1
+    curl -fsSL https://get.docker.com | sudo sh >/dev/null 2>&1 || fail_step "No se pudo instalar Docker"
     sudo usermod -aG docker "$USER" 2>/dev/null || true
     start_spin "Docker..."
 fi
 if docker info >/dev/null 2>&1; then
     DC="docker"
-else
+elif sudo docker info >/dev/null 2>&1; then
     DC="sudo docker"
+else
+    fail_step "Docker no está corriendo. Inicialo con: sudo systemctl start docker"
 fi
-# Preferir docker-compose v1 si está disponible (evita conflictos de nombres)
+# Detectar docker-compose o docker compose
 if command -v docker-compose >/dev/null 2>&1; then
     COMPOSE="docker-compose"
     [ "$DC" = "sudo docker" ] && COMPOSE="sudo docker-compose"
 elif $DC compose version >/dev/null 2>&1; then
     COMPOSE="$DC compose"
 else
-    pkg docker-compose-plugin
-    COMPOSE="$DC compose"
+    pkg docker-compose-plugin || pkg docker-compose
+    if command -v docker-compose >/dev/null 2>&1; then
+        COMPOSE="docker-compose"
+    elif $DC compose version >/dev/null 2>&1; then
+        COMPOSE="$DC compose"
+    else
+        fail_step "docker compose no disponible. Instalalo manualmente."
+    fi
 fi
-stop_spin "Docker"
+stop_spin "Docker  (${COMPOSE})"
 
 # ── 4. Repositorio ────────────────────────────────────────────────────────────
-start_spin "Descargando bb-tracker..."
+start_spin "bb-tracker..."
+mkdir -p "$(dirname "$INSTALL_DIR")"
 if [ -d "$INSTALL_DIR/.git" ]; then
-    git -C "$INSTALL_DIR" pull --ff-only -q
+    git -C "$INSTALL_DIR" pull --ff-only -q || true
 else
-    mkdir -p "$(dirname "$INSTALL_DIR")"
-    git clone -q "$REPO_URL" "$INSTALL_DIR"
+    git clone -q "$REPO_URL" "$INSTALL_DIR" || fail_step "No se pudo clonar el repositorio"
 fi
 [ ! -f "$INSTALL_DIR/.env" ] && cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
 stop_spin "bb-tracker descargado"
@@ -135,24 +127,17 @@ stop_spin "bb-tracker descargado"
 # ── 5. Dependencias CLI ───────────────────────────────────────────────────────
 start_spin "Dependencias del CLI..."
 VENV="$INSTALL_DIR/.venv"
-python3 -m venv --clear "$VENV" >/dev/null 2>&1
+python3 -m venv --clear "$VENV" >/dev/null 2>&1 || fail_step "No se pudo crear el entorno virtual Python"
 find "$VENV" -name "EXTERNALLY-MANAGED" -delete 2>/dev/null || true
-"$VENV/bin/python" -m pip install -q -r "$INSTALL_DIR/requirements-cli.txt" >/dev/null 2>&1
+"$VENV/bin/python" -m pip install -q -r "$INSTALL_DIR/requirements-cli.txt" >/dev/null 2>&1 \
+    || fail_step "No se pudieron instalar las dependencias del CLI"
 stop_spin "Dependencias del CLI"
 
 # ── 6. Imagen Docker ──────────────────────────────────────────────────────────
 start_spin "Imagen Docker..."
-set +e; trap - ERR
 BUILD_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE build) 2>&1 )
 BUILD_EXIT=$?
-set -e; trap on_error ERR
-if [ "$BUILD_EXIT" -ne 0 ]; then
-    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""
-    printf "${CLR}  ${R}✘${RESET}  Error construyendo imagen Docker\n\n"
-    printf "  ${DIM}Detalle:${RESET}\n"
-    echo "$BUILD_OUT" | tail -20 | sed 's/^/    /'
-    echo; rm -rf "$INSTALL_DIR"; rm -f "$CMD"; exit 1
-fi
+[ "$BUILD_EXIT" -ne 0 ] && fail_step "Error construyendo la imagen Docker" "$BUILD_OUT"
 stop_spin "Imagen Docker"
 
 # ── 7. Comando bb-tracker ─────────────────────────────────────────────────────
@@ -175,40 +160,17 @@ stop_spin "Comando bb-tracker"
 
 # ── 8. Contenedor ─────────────────────────────────────────────────────────────
 start_spin "Iniciando contenedor..."
-
-# Detener cualquier contenedor que use el puerto 8000
-docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null \
-  | grep '8000' \
-  | awk '{print $1}' \
-  | xargs -r docker stop >/dev/null 2>&1 || true
-
-sudo docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null \
-  | grep '8000' \
-  | awk '{print $1}' \
-  | xargs -r sudo docker stop >/dev/null 2>&1 || true
-
+# Liberar puerto 8000
+docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null | grep '8000' | awk '{print $1}' | xargs -r docker stop >/dev/null 2>&1 || true
+sudo docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null | grep '8000' | awk '{print $1}' | xargs -r sudo docker stop >/dev/null 2>&1 || true
 (cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null) || true
-sleep 2
-set +e; trap - ERR
+sleep 1
 UP_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 )
 UP_EXIT=$?
-set -e; trap on_error ERR
-if [ "$UP_EXIT" -ne 0 ]; then
-    [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""
-    printf "${CLR}  ${R}✘${RESET}  Error iniciando el contenedor\n\n"
-    printf "  ${DIM}Detalle:${RESET}\n"
-    echo "$UP_OUT" | sed 's/^/    /'
-    echo
-    (cd "$INSTALL_DIR" && $COMPOSE down -v 2>/dev/null) || true
-    rm -rf "$INSTALL_DIR"
-    rm -f "$CMD"
-    exit 1
-fi
-
+[ "$UP_EXIT" -ne 0 ] && fail_step "Error iniciando el contenedor" "$UP_OUT"
 stop_spin "Contenedor en ejecución"
 
 # ── Listo ─────────────────────────────────────────────────────────────────────
-_installed=true
 echo
 echo -e "  ${G}${BOLD}✔  ¡Instalación completa!${RESET}"
 echo
