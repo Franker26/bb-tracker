@@ -179,14 +179,21 @@ sudo docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null \
 
 (cd "$INSTALL_DIR" && $COMPOSE down --remove-orphans 2>/dev/null) || true
 sleep 2
-UP_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 ) || {
+set +e
+UP_OUT=$( (cd "$INSTALL_DIR" && $COMPOSE up -d) 2>&1 )
+UP_EXIT=$?
+set -e
+if [ "$UP_EXIT" -ne 0 ]; then
     [ -n "$_spin_pid" ] && kill "$_spin_pid" 2>/dev/null; wait "$_spin_pid" 2>/dev/null; _spin_pid=""
     printf "${CLR}  ${R}✘${RESET}  Error iniciando el contenedor\n\n"
     printf "  ${DIM}Detalle:${RESET}\n"
     echo "$UP_OUT" | sed 's/^/    /'
     echo
+    (cd "$INSTALL_DIR" && $COMPOSE down -v 2>/dev/null) || true
+    rm -rf "$INSTALL_DIR"
+    rm -f "$CMD"
     exit 1
-}
+fi
 
 stop_spin "Contenedor en ejecución"
 
